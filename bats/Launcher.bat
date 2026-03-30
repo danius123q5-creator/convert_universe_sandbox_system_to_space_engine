@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title US2SE Bridge Launcher
 cd /d "%~dp0.."
