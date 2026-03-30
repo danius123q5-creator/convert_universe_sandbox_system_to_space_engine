@@ -173,9 +173,22 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
     se_class = resolve_se_class(entity)
     temp_k, albedo = float(entity.get('SurfaceTemperature', 0)), float(entity.get('Albedo', 0.3))
     
+    # Calculate Rotation Period
+    ang = entity.get('AngularVelocity')
+    rot_period_hours = 24.0
+    if ang:
+        try:
+            parts = [float(x) for x in ang.split(';')]
+            mag = (parts[0]**2 + parts[1]**2 + parts[2]**2)**0.5
+            if mag > 0:
+                rot_period_hours = (2 * math.pi / mag) / 3600
+        except Exception:
+            pass
+
     lines = [
         f'{se_type} "{name}"', '{', f'    ParentBody "{parent_name}"', f'    Class      "{se_class}"',
-        f'    Mass       {mass_kg * KG_TO_MSUN:.10e}', f'    Radius     {radius_m*M_TO_KM:.4f}', f'    Albedo     {albedo:.3f}'
+        f'    Mass       {mass_kg * KG_TO_MSUN:.10e}', f'    Radius     {radius_m*M_TO_KM:.4f}', f'    Albedo     {albedo:.3f}',
+        f'    RotationPeriod {rot_period_hours:.4f}'
     ]
     if temp_k > 1.0: lines.append(f'    SurfaceTemp {temp_k:.1f}')
 
