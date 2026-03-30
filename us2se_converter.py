@@ -53,6 +53,31 @@ JUNK_NAME_PREFIXES = ('ui_string:', 'фрагмент', 'fragment', 'debris')
 MIN_RADIUS_KM     = 100
 MIN_RADIUS_SSO_KM = 0.1
 MAX_RADIUS_KM     = 200_000
+SIGMA = 5.670373e-8  # Стефан-Больцман
+
+def get_spectral_class(temp):
+    if temp > 30000: return 'O'
+    if temp > 10000: return 'B'
+    if temp > 7500:  return 'A'
+    if temp > 6000:  return 'F'
+    if temp > 5200:  return 'G'
+    if temp > 3700:  return 'K'
+    return 'M'
+
+def entity_to_star_sc(entity):
+    name = (entity.get('Name') or 'Star').strip()
+    
+    lines = [
+        f'Star "{name}"',
+        '{',
+        f'    Class      "G2 V"',
+        f'    Luminosity 1.0',
+        f'    RadSol     1.0',
+        f'    MassSol    1.0',
+        f'    Dist       0.0001',
+        '}'
+    ]
+    return '\n'.join(lines)
 
 def is_junk(entity):
     name = (entity.get('Name') or '').strip()
@@ -202,22 +227,50 @@ class US2SE_Converter:
         if se_install_dir: self.output_base = os.path.join(se_install_dir, 'addons', 'catalogs', 'planets')
 
     def convert_ubox(self, ubox_path, catalog_name='US2_IMPORT', se_star_name='Sun'):
+        out_dir = self.output_base
+        star_dir = os.path.join(getattr(self, 'se_install_dir') or out_dir, 'addons', 'catalogs', 'stars')
+        os.makedirs(out_dir, exist_ok=True)
+        os.makedirs(star_dir, exist_ok=True)
+
+        import zipfile, json
         with zipfile.ZipFile(ubox_path, 'r') as zf:
-            with zf.open('simulation.json') as fp: data = json.load(fp)
+            with zf.open('simulation.json') as fp:
+                data = json.load(fp)
+
         entities = data.get('Entities', [])
-        center = max([e for e in entities if e.get('Category')=='star'] or entities, key=lambda e: e.get('PhysicsMass',0))
-        sc_text = self._generate_sc_content(entities, center, os.path.basename(ubox_path), se_star_name)
+        stars = [e for e in entities if e.get('Category') == 'star']
+        center = max(stars or entities, key=lambda e: e.get('PhysicsMass', 0))
+
+        star_sc, planets_sc = self._generate_sc_content(entities, center, os.path.basename(ubox_path), se_star_name)
         
-        os.makedirs(self.output_base, exist_ok=True)
-        out_path = os.path.join(self.output_base, catalog_name + '.sc')
-        with open(out_path, 'w', encoding='utf-8') as f: f.write(sc_text)
+        star_path = os.path.join(star_dir, catalog_name + '_Star.sc')
+        with open(star_path, 'w', encoding='utf-8') as f:
+            f.write(star_sc)
+            
+        out_path = os.path.join(out_dir, catalog_name + '.sc')
+        with open(out_path, 'w', encoding='utf-8') as f:
+            f.write(planets_sc)
+            
+        print(f'Каталог звезд сохранен: {star_path}')
+        print(f'Каталог планет сохранен: {out_path}')
         return out_path
 
+
     def _generate_sc_content(self, entities, center, source_name, se_star_name):
-        header = [f'// US2SE v3.4 - Fixed hierarchy', f'// Source: {source_name}', '']
+        header = [f'// US2SE v3.7 - Forced System Isolation', f'// Source: {source_name}', '']
+        
+        # 1. Генерируем описание ГЛАВНОЙ ЗВЕЗДЫ (Принудительно используем se_star_name)
+        star_id = center['Id']
+        
+        # Клонируем объект звезды и задаем имя системы из настроек (например, "Моя Система")
+        center_fixed = dict(center)
+        center_fixed['Name'] = se_star_name
+        
+        star_block = entity_to_star_sc(center_fixed)
+        
         processed, seen = [], set()
         for e in entities:
-            if e['Id'] == center['Id'] or is_junk(e): continue
+            if e['Id'] == star_id or is_junk(e): continue
             name = (e.get('Name') or '').strip()
             if not name or any(x in name.lower() for x in ['camera', 'dummy']) or name.lower() in seen: continue
             seen.add(name.lower())
@@ -226,43 +279,68 @@ class US2SE_Converter:
             known = get_known_orbit(name)
             if known:
                 p_db = next((obj for obj in entities if obj.get('Name','').lower()==known['ParentOverride'].lower()), None)
-                parent = p_db if p_db else center
+                parent = p_db if p_db else center_fixed
                 orbit = {'SemiMajorAxis_AU': known['SemiMajorAxis_AU'], 'Eccentricity': known['Eccentricity'], 
                          'Inclination': known['Inclination'], 'Period_days': known['Period_days'], 'source': 'DB'}
                 se_type = known['SEType']
             else:
+                rp, _ = find_nearest_parent(e, entities, {'planet', 'star', 'sso'})
                 if cat == 'moon':
-                    rp, _ = find_nearest_parent(e, entities, {'planet', 'star'})
-                    se_type, parent = resolve_se_type(cat, rp, entities, center)
-                elif cat == 'sso':
-                    parent, _ = find_nearest_parent(e, entities, {'star', 'planet'})
-                    se_type = 'Asteroid'
+                    se_type, parent = resolve_se_type(cat, rp, entities, center_fixed)
                 else:
-                    parent, _ = find_nearest_parent(e, entities, {'star'})
-                    se_type = 'Planet'
-                if not parent: parent = center
+                    if rp and rp.get('Category', '').lower() in ('planet', 'sso'):
+                        se_type, parent = 'Moon', rp
+                    else:
+                        se_type = 'Asteroid' if cat == 'sso' else 'Planet'
+                        parent = rp if rp else center_fixed
+                
+                if not parent: parent = center_fixed
+                
+                # Изоляция: любая звезда в этом моде привязывается к центру системы
+                if parent.get('Category') == 'star' and parent['Id'] != star_id:
+                    parent = center_fixed
+                    
                 pos, vel = vec_sub(parse_vec3(e['Position']), parse_vec3(parent['Position'])), vec_sub(parse_vec3(e['Velocity']), parse_vec3(parent['Velocity']))
-                orbit = compute_kepler_orbit(pos, vel, parent.get('PhysicsMass', 1e30))
+                orbit = compute_kepler_orbit(pos, vel, parent.get('PhysicsMass', 10**30))
                 if not orbit: orbit = {'SemiMajorAxis_AU': vec_len(pos)*M_TO_AU, 'Eccentricity': 0.0, 'Inclination': 0.0, 'Period_days': 1.0, 'source': 'fallback'}
 
-            processed.append({'entity': e, 'parent_id': parent['Id'], 'orbit': sanitize_orbit(orbit, se_type), 'se_type': se_type})
+            processed.append({'entity': e, 'parent_id': parent['Id'] if parent else star_id, 'orbit': sanitize_orbit(orbit, se_type), 'se_type': se_type})
 
+        # Группируем по родителям
         by_parent, final_lines = {}, []
         for b in processed:
             pid = b['parent_id']
             if pid not in by_parent: by_parent[pid] = []
             by_parent[pid].append(b)
 
-        def _add_children(pid):
-            # БЕРЕМ СПИСОК КАК ОН БЫЛ В US (без сортировки по расстоянию)
-            children = by_parent.get(pid, [])
-            for c in children:
-                final_lines.append(entity_to_sc(c['entity'], next(e for e in entities if e['Id']==c['parent_id']), c['orbit'], c['se_type'], se_star_name))
-                final_lines.append('')
-                _add_children(c['entity']['Id'])
+        written_ids = set()
+        def _add_recursive(body):
+            if body['entity']['Id'] in written_ids: return
+            parent_obj = next((e for e in entities if e['Id'] == body['parent_id']), center_fixed)
+            
+            # Если это прямая планета звезды — используем наше ФИКСИРОВАННОЕ имя звезды
+            p_name_final = se_star_name if parent_obj['Id'] == star_id else parent_obj.get('Name', 'Sun')
+            
+            block = entity_to_sc(body['entity'], parent_obj, body['orbit'], body['se_type'], p_name_final)
+            final_lines.append(block)
+            final_lines.append('')
+            written_ids.add(body['entity']['Id'])
+            for child in by_parent.get(body['entity']['Id'], []):
+                _add_recursive(child)
 
-        _add_children(center['Id'])
-        return '\n'.join(header + final_lines)
+        # Рекурсия от изолированного центра
+        for root in by_parent.get(star_id, []):
+            _add_recursive(root)
+            
+        for body in processed:
+            if body['entity']['Id'] not in written_ids:
+                _add_recursive(body)
+
+        print(f"Сгенерировано: ГИБРИДНЫЙ центр '{se_star_name}' и {len(written_ids)} объектов.")
+        
+        star_full = f"// US2SE v3.8 - Star Catalog\n\n{star_block}"
+        planets_full = '\n'.join(header + final_lines)
+        return star_full, planets_full
 
 if __name__ == '__main__':
     convert(sys.argv[1] if len(sys.argv) > 1 else None)
