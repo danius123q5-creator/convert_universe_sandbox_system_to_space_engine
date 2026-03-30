@@ -207,9 +207,18 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
             lines.extend(['    Atmosphere', '    {', f'        Model    "Earth"', f'        Pressure {pressure_atm:.6f}', '    }'])
             has_atm = True
 
-    # Жизнь на спутниках/планетах, если условия позволяют (по запросу пользователя)
+    # Вероятность появления жизни на небесных телах
     if has_atm and 200 < temp_k < 360 and se_class in ("Terra", "Oceania", "Desert"):
-        lines.extend(['    Life', '    {', '        Class   "Organic"', '        Type    "Multicellular"', '        Biome   "Marine/Terrestrial"', '    }'])
+        import random
+        # Хэшируем имя, чтобы шанс для одной и той же планеты/луны всегда выпадал одинаково
+        random.seed(name) 
+        
+        # Шанс: 100% для планет, 35% для лун
+        chance = 0.35 if se_type == "Moon" else 1.0
+            
+        if random.random() <= chance:
+            lines.extend(['    Life', '    {', '        Class   "Organic"', '        Type    "Multicellular"', '        Biome   "Marine/Terrestrial"', '    }'])
+        random.seed() # Возвращаем обычный рандом
 
     lines.extend([f'    Orbit', '    {', f'        SemiMajorAxis {orbit_data["SemiMajorAxis_AU"]:.8f}',
                   f'        Eccentricity  {orbit_data["Eccentricity"]:.6f}',
