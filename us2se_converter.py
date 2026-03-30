@@ -188,8 +188,7 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
     lines = [
         f'{se_type} "{name}"', '{', f'    ParentBody "{parent_name}"', f'    Class      "{se_class}"',
         f'    Mass       {mass_kg / (5.972e24):.10e}', f'    Radius     {radius_m*M_TO_KM:.4f}', f'    Albedo     {albedo:.3f}',
-        f'    RotationPeriod {rot_period_hours:.4f}',
-        f'    Oblateness 0.0'
+        f'    RotationPeriod {rot_period_hours:.4f}'
     ]
     if temp_k > 1.0: lines.append(f'    SurfaceTemp {temp_k:.1f}')
 
