@@ -298,6 +298,32 @@ def entity_to_sc(entity, parent, orbit_data, se_type='Planet', se_star_name='Sun
     period = orbit_data['Period_days']
     src    = orbit_data.get('source', '?')
 
+    # --- ИЗВЛЕЧЕНИЕ АТМОСФЕРЫ И ОБЛАКОВ ---
+    atm_mass = 0
+    atm_color = None
+    cloud_opacity = 0
+    cloud_coverage = 0
+    
+    components = entity.get('Components', [])
+    for comp in components:
+        ctype = comp.get('$type', '')
+        if ctype == 'Celestial':
+            atm_mass = comp.get('AtmosphereMass', 0)
+        elif ctype == 'AppearanceComponent':
+            p_data = comp.get('Planet', {})
+            if p_data.get('ShowAtmosphere'):
+                c_str = p_data.get('AtmosphereColor', 'RGBA(0.5, 0.5, 0.5, 1.0)')
+                # RGBA(0.212, 0.325, 0.510, 1.000) -> [0.212, 0.325, 0.510]
+                try:
+                    atm_color = c_str.split('(')[1].split(')')[0].split(',')[:3]
+                    atm_color = " ".join([c.strip() for c in atm_color])
+                except:
+                    atm_color = "0.5 0.6 1.0"
+            
+            if p_data.get('ShowAtmosphereClouds'):
+                cloud_opacity = p_data.get('CloudOpacity', 0)
+                cloud_coverage = p_data.get('CloudCoverage', 0)
+
     lines = [
         f'{se_type} "{name}"',
         '{',
@@ -311,6 +337,31 @@ def entity_to_sc(entity, parent, orbit_data, se_type='Planet', se_star_name='Sun
     # Добавляем температуру только если она выше 0
     if temp_k > 1.0:
         lines.append(f'    SurfaceTemp {temp_k:.1f}')
+
+    # Добавляем Атмосферу (если есть масса)
+    if atm_mass > 1e14: # Минимум для заметности
+        # Примерный расчет давления: P = (M_atm * g) / Area
+        gravity = (G * mass_kg) / (radius_m**2)
+        area = 4 * math.pi * (radius_m**2)
+        pressure_pa = (atm_mass * gravity) / area
+        pressure_atm = pressure_pa / 101325.0
+        
+        lines.append('    Atmosphere')
+        lines.append('    {')
+        lines.append(f'        Model       "Earth"') # Дефолтная модель для каменистых
+        lines.append(f'        Pressure    {pressure_atm:.6f}')
+        if atm_color:
+            lines.append(f'        Color       ({atm_color})')
+        lines.append('    }')
+
+    # Добавляем Облака
+    if cloud_opacity > 0.05 and cloud_coverage > 0.05:
+        lines.append('    Clouds')
+        lines.append('    {')
+        lines.append(f'        Coverage    {cloud_coverage:.2f}')
+        lines.append(f'        Height      10') # Средняя высота
+        lines.append(f'        Color       (1.0 1.0 1.0 {cloud_opacity:.2f})')
+        lines.append('    }')
         
     lines.extend([
         f'    // orbit source: {src}',
@@ -491,7 +542,7 @@ class US2SE_Converter:
         center    = max(stars or entities, key=lambda e: e.get('PhysicsMass', 0))
 
         header = [
-            f'// Сгенерировано us2se_converter.py v3.2 (live sync)',
+            f'// Сгенерировано us2se_converter.py v3.2',
             f'// Источник: {os.path.basename(ubox_path)}',
             f'// Центр: {center["Name"]}',
             '',

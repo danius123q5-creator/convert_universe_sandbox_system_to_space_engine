@@ -1,5 +1,5 @@
 @echo off
-title US2SE Bridge - SYNC
+title US2SE Bridge - Converter
 color 0e
 cd /d "%~dp0"
 

@@ -1,5 +1,5 @@
 """
-us2se_sync.py — Live-синхронизатор Universe Sandbox 2 → SpaceEngine
+us2se_sync.py — Скрипт-мост Universe Sandbox 2 → SpaceEngine
 Пути берёт из config.ini — редактируй только его.
 После каждого обновления каталога перезапускает SpaceEngine.
 """
@@ -114,7 +114,7 @@ def main():
     us2_dir, se_dir, catalog_name, poll_interval, se_exe, se_star_name = load_config()
 
     print("=" * 55)
-    print("  US2SE Bridge — Live Sync")
+    print("  US2SE Bridge — Universe Sandbox 2 to SE")
     print("=" * 55)
     print(f"  config.ini: {CONFIG_PATH}")
     print(f"  US2 папка : {us2_dir}")
