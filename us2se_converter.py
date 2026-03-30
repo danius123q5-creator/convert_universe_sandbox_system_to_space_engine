@@ -141,14 +141,25 @@ def get_known_orbit(name):
 
 def find_nearest_parent(entity, all_entities, preferred_cats):
     pos, mass = parse_vec3(entity['Position']), entity.get('PhysicsMass', 0)
-    best, best_dist = None, float('inf')
+    best, best_influence = None, -1.0
     for e in all_entities:
         if e['Id'] == entity['Id']: continue
         if e.get('Category', '').lower() not in preferred_cats: continue
-        if e.get('PhysicsMass', 0) <= mass: continue
+        
+        # Защита от бинарных систем равной массы: родитель должен весить хотя бы в 5 раз больше!
+        p_mass = e.get('PhysicsMass', 0)
+        if p_mass < mass * 5.0: continue
+        
         d = vec_len(vec_sub(pos, parse_vec3(e['Position'])))
-        if d < best_dist: best_dist, best = d, e
-    return best, best_dist
+        if d <= 0: continue
+        
+        # Симулируем гравитационную доминантность: M / R^2
+        influence = p_mass / (d ** 2)
+        if influence > best_influence: 
+            best_influence, best = influence, e
+            
+    # Возвращаем 1.0 как 'best_dist', чтобы старый код, который его вызывает, не сломался
+    return best, 1.0 if best else float('inf')
 
 def resolve_se_type(cat, parent, entities, center):
     if cat == 'moon':
