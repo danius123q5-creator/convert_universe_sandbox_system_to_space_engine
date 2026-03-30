@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 title US2SE Bridge Launcher
-
+cd /d "%~dp0.."
 :menu
 cls
 echo ==============================================
@@ -24,8 +24,8 @@ goto menu
 :setup
 cls
 echo Запуск авто-настройки...
-if exist "dist\US2SE_AutoDiscover.exe" (
-    "dist\US2SE_AutoDiscover.exe"
+if exist "src\dist\US2SE_AutoDiscover.exe" (
+    "src\dist\US2SE_AutoDiscover.exe"
 ) else (
     python src\autodiscover.py
 )
@@ -35,8 +35,8 @@ goto menu
 :start
 cls
 echo Запуск фонового процесса синхронизации...
-if exist "dist\US2SE_SyncBridge.exe" (
-    start "" "dist\US2SE_SyncBridge.exe"
+if exist "src\dist\US2SE_SyncBridge.exe" (
+    start "" "src\dist\US2SE_SyncBridge.exe"
 ) else (
     start "" pythonw src\us2se_sync.py
 )

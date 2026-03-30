@@ -40,7 +40,7 @@ G         = 6.674e-11
 M_TO_AU   = 1.0 / 1.495978707e11
 KG_TO_MSUN = 1.0 / 1.989e30
 M_TO_KM   = 1.0 / 1000.0
-DEFAULT_OUTPUT = r"d:\US2SE_Bridge\se_catalog"
+DEFAULT_OUTPUT = r"d:\US2SE_Bridge\src\se_catalog"
 
 MIN_SMA_PLANET_AU   = 0.02
 MIN_SMA_MOON_AU     = 0.0001
