@@ -192,14 +192,23 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
     ]
     if temp_k > 1.0: lines.append(f'    SurfaceTemp {temp_k:.1f}')
 
-    # Атмосфера
+    # Атмосфера и Жизнь
     atm_mass = 0
     for comp in entity.get('Components', []):
-        if comp.get('$type', '') == 'Celestial': atm_mass = comp.get('AtmosphereMass', 0)
+        if 'AtmosphereMass' in comp: 
+            atm_mass = comp['AtmosphereMass']
+            
+    has_atm = False
     if atm_mass > 1e14:
-        gravity = (G * mass_kg) / (radius_m**2)
+        gravity = (G * mass_kg) / (radius_m**2) if radius_m > 0 else 0
         pressure_atm = ((atm_mass * gravity) / (4 * math.pi * radius_m**2)) / 101325.0
-        lines.extend(['    Atmosphere', '    {', f'        Model    "Earth"', f'        Pressure {pressure_atm:.6f}', '    }'])
+        if pressure_atm > 0.001:
+            lines.extend(['    Atmosphere', '    {', f'        Model    "Earth"', f'        Pressure {pressure_atm:.6f}', '    }'])
+            has_atm = True
+
+    # Жизнь на спутниках/планетах, если условия позволяют (по запросу пользователя)
+    if has_atm and 200 < temp_k < 360 and se_class in ("Terra", "Oceania", "Desert"):
+        lines.extend(['    Life', '    {', '        Class   "Organic"', '        Type    "Multicellular"', '        Biome   "Marine/Terrestrial"', '    }'])
 
     lines.extend([f'    Orbit', '    {', f'        SemiMajorAxis {orbit_data["SemiMajorAxis_AU"]:.8f}',
                   f'        Eccentricity  {orbit_data["Eccentricity"]:.6f}',
