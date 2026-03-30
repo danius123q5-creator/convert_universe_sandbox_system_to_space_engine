@@ -50,7 +50,7 @@ FALLBACK_SMA_PLANET = 5.0
 FALLBACK_SMA_MOON   = 0.002
 
 JUNK_NAME_PREFIXES = ('ui_string:', 'фрагмент', 'fragment', 'debris')
-MIN_RADIUS_KM     = 100
+MIN_RADIUS_KM     = 0.1
 MIN_RADIUS_SSO_KM = 0.1
 MAX_RADIUS_KM     = 200_000
 SIGMA = 5.670373e-8  # Стефан-Больцман
@@ -74,7 +74,9 @@ def entity_to_star_sc(entity):
         f'    Luminosity 1.0',
         f'    RadSol     1.0',
         f'    MassSol    1.0',
-        f'    Dist       0.0001',
+        f'    RA         0.0        // Прямое восхождение',
+        f'    Dec        90.0       // Склонение (строго "наверх")',
+        f'    Dist       1000000.0  // Огромная дистанция (один миллион парсек), межгалактическая пустота',
         '}'
     ]
     return '\n'.join(lines)
@@ -188,7 +190,9 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
     lines = [
         f'{se_type} "{name}"', '{', f'    ParentBody "{parent_name}"', f'    Class      "{se_class}"',
         f'    Mass       {mass_kg / (5.972e24):.10e}', f'    Radius     {radius_m*M_TO_KM:.4f}', f'    Albedo     {albedo:.3f}',
-        f'    RotationPeriod {rot_period_hours:.4f}'
+        f'    RotationPeriod {rot_period_hours:.4f}',
+        f'    MakeBarycenter false',
+        f'    Barycenter     false'
     ]
     if temp_k > 1.0: lines.append(f'    SurfaceTemp {temp_k:.1f}')
 
@@ -208,6 +212,17 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
             if pressure_atm > 50.0: greenhouse_eff = 400.0
             lines.extend(['    Atmosphere', '    {', f'        Model    "Earth"', f'        Pressure {pressure_atm:.6f}', f'        Greenhouse {greenhouse_eff}', '    }'])
             has_atm = True
+
+    # Добавляем блок Surface для процедурного ландшафта (иначе планета будет просто гладким шаром)
+    if se_class != 'GasGiant':
+        lines.extend([
+            '    Surface',
+            '    {',
+            '        BumpHeight  10.0', # Примерная высота гор 10 км
+            '        BumpOffset  5.0',
+            f'        Style "{se_class}"',
+            '    }'
+        ])
 
     # Вероятность появления жизни на небесных телах
     if has_atm and 200 < temp_k < 360 and se_class in ("Terra", "Oceania", "Desert"):

@@ -12,7 +12,8 @@ import configparser
 
 # ─── Читаем config.ini из папки скрипта ───────────────────────────────────────
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(SCRIPT_DIR, 'config.ini')
+PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
+CONFIG_PATH = os.path.join(PROJECT_DIR, 'config.ini')
 
 
 def load_config():
