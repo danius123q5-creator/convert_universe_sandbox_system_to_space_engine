@@ -141,25 +141,14 @@ def get_known_orbit(name):
 
 def find_nearest_parent(entity, all_entities, preferred_cats):
     pos, mass = parse_vec3(entity['Position']), entity.get('PhysicsMass', 0)
-    best, best_influence = None, -1.0
+    best, best_dist = None, float('inf')
     for e in all_entities:
         if e['Id'] == entity['Id']: continue
         if e.get('Category', '').lower() not in preferred_cats: continue
-        
-        # Защита от бинарных систем равной массы: родитель должен весить хотя бы в 5 раз больше!
-        p_mass = e.get('PhysicsMass', 0)
-        if p_mass < mass * 5.0: continue
-        
+        if e.get('PhysicsMass', 0) <= mass: continue
         d = vec_len(vec_sub(pos, parse_vec3(e['Position'])))
-        if d <= 0: continue
-        
-        # Симулируем гравитационную доминантность: M / R^2
-        influence = p_mass / (d ** 2)
-        if influence > best_influence: 
-            best_influence, best = influence, e
-            
-    # Возвращаем 1.0 как 'best_dist', чтобы старый код, который его вызывает, не сломался
-    return best, 1.0 if best else float('inf')
+        if d < best_dist: best_dist, best = d, e
+    return best, best_dist
 
 def resolve_se_type(cat, parent, entities, center):
     if cat == 'moon':
@@ -212,7 +201,7 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
     has_atm = False
     if atm_mass > 1e14:
         gravity = (G * mass_kg) / (radius_m**2) if radius_m > 0 else 0
-        pressure_atm = ((atm_mass * gravity) / (4 * math.pi * radius_m**2)) / 101325.0
+        pressure_atm = ((atm_mass * gravity) / (4 * math.pi * radius_m**2)) / 101325.0 if radius_m > 0 else 0.0
         if pressure_atm > 0.001:
             greenhouse_eff = 33.0
             if pressure_atm > 5.0: greenhouse_eff = 100.0
