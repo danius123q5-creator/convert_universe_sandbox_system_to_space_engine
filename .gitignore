@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Настройки (не выкладываем свои пути!)
+config.ini
+
+# Временные файлы и симуляции
+*.ubox
+*.zip
+temp/
+
+# Каталоги SE (если они в папке проекта)
+se_catalog/
+TRUE_SYSTEM.sc
+
+# Редактор
+.vscode/
+.idea/
+*.swp

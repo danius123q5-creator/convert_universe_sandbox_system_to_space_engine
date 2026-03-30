@@ -1,0 +1,27 @@
+# ╔══════════════════════════════════════════════════════╗
+# ║         US2SE Bridge — config template (GITHUB)      ║
+# ╚══════════════════════════════════════════════════════╝
+# Переименуй этот файл в config.ini и настрой пути.
+
+[paths]
+# Папка с симуляциями Universe Sandbox 2 (обычно в Documents)
+us2_simulations = C:\Users\YOUR_NAME\Documents\Universe Sandbox\Simulations
+
+# Путь к установке SpaceEngine
+se_install = C:\SteamLibrary\steamapps\common\SpaceEngine
+
+[apps]
+# Полные пути к .exe файлам (нужны для START.bat)
+us2_exe = C:\SteamLibrary\steamapps\common\Universe Sandbox\Universe Sandbox x64.exe
+se_exe  = C:\SteamLibrary\steamapps\common\SpaceEngine\system\SpaceEngine.exe
+
+[sync]
+# Имя выходного каталога в SE/addons/catalogs/planets/
+catalog_name = TRUE_SYSTEM
+
+# Интервал синхронизации (сек)
+poll_interval = 2
+
+# Имя родительской звезды в SpaceEngine (должно совпадать с именем в SE!)
+# "Sun" — для стандартного Солнца, или имя твоей кастомной звезды.
+se_star_name = Sun
