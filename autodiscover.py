@@ -8,6 +8,29 @@ from pathlib import Path
 US2_APPID = "230290"
 SE_APPID = "314650"
 
+def find_on_disks(filename_pattern, subdir=""):
+    """Ищет файл в типичных местах на всех дисках (для пираток)."""
+    drives = [f"{d}:\\" for d in "CDEFGHIJKLMNOP" if os.path.exists(f"{d}:\\")]
+    common_roots = ["Games", "GAMES", "Program Files", "Program Files (x86)", "SteamLibrary/steamapps/common"]
+    
+    for drive in drives:
+        for root in common_roots:
+            search_path = os.path.join(drive, root)
+            if not os.path.isdir(search_path):
+                continue
+            # Ищем во вложенных папках первого уровня
+            try:
+                for folder in os.listdir(search_path):
+                    full_folder = os.path.join(search_path, folder)
+                    if not os.path.isdir(full_folder): continue
+                    
+                    target = os.path.join(full_folder, subdir, filename_pattern)
+                    if os.path.exists(target):
+                        return os.path.abspath(full_folder)
+            except PermissionError:
+                continue
+    return None
+
 def get_steam_install_path(app_id):
     """Ищет путь к установке игры в реестре Steam."""
     for key_path in [
@@ -41,16 +64,24 @@ def setup():
     
     # 1. Поиск путей
     se_path = get_steam_install_path(SE_APPID)
+    if not se_path:
+        # Пытаемся найти SpaceEngine вручную (пиратка)
+        se_path = find_on_disks("SpaceEngine.exe", subdir="system")
+        
     us2_path = get_steam_install_path(US2_APPID)
+    if not us2_path:
+        # Пытаемся найти US2 вручную (пиратка)
+        us2_path = find_on_disks("Universe Sandbox.exe") or find_on_disks("Universe Sandbox x64.exe")
+
     sim_path = find_us2_simulations()
     
     if not se_path:
-        print("[!] Не удалось найти SpaceEngine через реестр Steam.")
+        print("[!] Не удалось найти SpaceEngine. Если у вас пиратка, укажите путь вручную в config.ini")
     else:
         print(f"[✓] Найдено SpaceEngine: {se_path}")
         
     if not us2_path:
-        print("[!] Не удалось найти Universe Sandbox через реестр Steam.")
+        print("[!] Не удалось найти Universe Sandbox. Укажите путь вручную в config.ini")
     else:
         print(f"[✓] Найдено Universe Sandbox: {us2_path}")
         
