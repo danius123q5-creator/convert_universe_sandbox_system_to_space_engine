@@ -44,5 +44,6 @@ echo  Пути читаются из config.ini
 echo  Для остановки: Ctrl+C или STOP.bat
 echo.
 
-python us2se_sync.py
+python src\us2se_sync.py
 pause
+

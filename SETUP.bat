@@ -18,7 +18,8 @@ if errorlevel 1 (
 )
 
 :: Запуск авто-дискавера
-python autodiscover.py
+python src\autodiscover.py
 
 echo.
 pause
+
