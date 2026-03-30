@@ -78,17 +78,17 @@ def setup():
     if not se_path:
         print("[!] Не удалось найти SpaceEngine. Если у вас пиратка, укажите путь вручную в config.ini")
     else:
-        print(f"[✓] Найдено SpaceEngine: {se_path}")
+        print(f"[OK] Найдено SpaceEngine: {se_path}")
         
     if not us2_path:
         print("[!] Не удалось найти Universe Sandbox. Укажите путь вручную в config.ini")
     else:
-        print(f"[✓] Найдено Universe Sandbox: {us2_path}")
+        print(f"[OK] Найдено Universe Sandbox: {us2_path}")
         
     if not sim_path:
         print("[!] Не удалось найти папку симуляций US2 в Документах.")
     else:
-        print(f"[✓] Найдена папка симуляций: {sim_path}")
+        print(f"[OK] Найдена папка симуляций: {sim_path}")
 
     # 2. Подготовка конфига
     config = configparser.ConfigParser()

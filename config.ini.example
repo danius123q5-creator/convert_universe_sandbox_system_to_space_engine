@@ -25,4 +25,4 @@ poll_interval = 2
 
 # Имя родительской звезды в SpaceEngine (должно совпадать с именем в SE!)
 # "Sun" — для стандартного Солнца, или имя твоей кастомной звезды.
-se_star_name = Sun
+se_star_name = !_Mega_System
