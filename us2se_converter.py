@@ -214,7 +214,7 @@ class US2SE_Converter:
         return out_path
 
     def _generate_sc_content(self, entities, center, source_name, se_star_name):
-        header = [f'// US2SE v3.3 - Sorted by Distance', f'// Source: {source_name}', '']
+        header = [f'// US2SE v3.4 - Fixed hierarchy', f'// Source: {source_name}', '']
         processed, seen = [], set()
         for e in entities:
             if e['Id'] == center['Id'] or is_junk(e): continue
@@ -254,7 +254,8 @@ class US2SE_Converter:
             by_parent[pid].append(b)
 
         def _add_children(pid):
-            children = sorted(by_parent.get(pid, []), key=lambda x: x['orbit']['SemiMajorAxis_AU'])
+            # БЕРЕМ СПИСОК КАК ОН БЫЛ В US (без сортировки по расстоянию)
+            children = by_parent.get(pid, [])
             for c in children:
                 final_lines.append(entity_to_sc(c['entity'], next(e for e in entities if e['Id']==c['parent_id']), c['orbit'], c['se_type'], se_star_name))
                 final_lines.append('')
