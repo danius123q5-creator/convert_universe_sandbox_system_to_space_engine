@@ -203,7 +203,10 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
         gravity = (G * mass_kg) / (radius_m**2) if radius_m > 0 else 0
         pressure_atm = ((atm_mass * gravity) / (4 * math.pi * radius_m**2)) / 101325.0
         if pressure_atm > 0.001:
-            lines.extend(['    Atmosphere', '    {', f'        Model    "Earth"', f'        Pressure {pressure_atm:.6f}', '    }'])
+            greenhouse_eff = 33.0
+            if pressure_atm > 5.0: greenhouse_eff = 100.0
+            if pressure_atm > 50.0: greenhouse_eff = 400.0
+            lines.extend(['    Atmosphere', '    {', f'        Model    "Earth"', f'        Pressure {pressure_atm:.6f}', f'        Greenhouse {greenhouse_eff}', '    }'])
             has_atm = True
 
     # Вероятность появления жизни на небесных телах
