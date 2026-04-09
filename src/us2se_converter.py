@@ -1,5 +1,5 @@
 # us2se_converter.py — Universe Sandbox 2 → Space Engine Converter
-# v3.3 — Сортировка тел по удалению от родителя (как в SE)
+# v4.0 — Полные орбиты (6 элементов), кольца, улучшенная атмосфера, реальные данные звезды
 
 import zipfile
 import json
@@ -49,6 +49,14 @@ MAX_SMA_MOON_AU     = 0.5
 FALLBACK_SMA_PLANET = 5.0
 FALLBACK_SMA_MOON   = 0.002
 
+# ─── КОЛЬЦА ИЗВЕСТНЫХ ПЛАНЕТ (inner_km, outer_km, texture_hint) ────
+KNOWN_RINGS = {
+    'saturn':  (66900,  140220, 'saturn'),
+    'jupiter': (92000,  129000, 'jupiter'),
+    'uranus':  (38000,  51149,  'uranus'),
+    'neptune': (40900,  62932,  'neptune'),
+}
+
 JUNK_NAME_PREFIXES = ('ui_string:', 'фрагмент', 'fragment', 'debris')
 MIN_RADIUS_KM     = 0.1
 MIN_RADIUS_SSO_KM = 0.1
@@ -64,16 +72,35 @@ def get_spectral_class(temp):
     if temp > 3700:  return 'K'
     return 'M'
 
+R_SUN_M = 6.957e8
+M_SUN_KG = 1.989e30
+L_SUN_W  = 3.828e26
+
 def entity_to_star_sc(entity):
     name = (entity.get('Name') or 'Star').strip()
-    
+
+    mass_kg = entity.get('PhysicsMass', M_SUN_KG)
+    radius_m = entity.get('Radius', R_SUN_M)
+    temp_k = float(entity.get('SurfaceTemperature', 5778))
+
+    mass_sol = mass_kg / M_SUN_KG
+    rad_sol = radius_m / R_SUN_M
+    # Luminosity from Stefan-Boltzmann: L = 4πR²σT⁴
+    lum_w = 4.0 * math.pi * radius_m**2 * SIGMA * temp_k**4
+    lum_sol = lum_w / L_SUN_W
+
+    spec = get_spectral_class(temp_k)
+    # Приблизительный подкласс по температуре внутри спектрального класса
+    spec_full = f'{spec}2 V'  # Класс V (main sequence) по умолчанию
+
     lines = [
         f'Star "{name}"',
         '{',
-        f'    Class      "G2 V"',
-        f'    Luminosity 1.0',
-        f'    RadSol     1.0',
-        f'    MassSol    1.0',
+        f'    Class      "{spec_full}"',
+        f'    Luminosity {lum_sol:.4f}',
+        f'    RadSol     {rad_sol:.4f}',
+        f'    MassSol    {mass_sol:.4f}',
+        f'    Teff       {temp_k:.0f}',
         f'    RA         0.0        // Прямое восхождение',
         f'    Dec        90.0       // Склонение (строго "наверх")',
         f'    Dist       1000000.0  // Огромная дистанция (один миллион парсек), межгалактическая пустота',
@@ -114,6 +141,8 @@ def vec_len(v): return math.sqrt(v[0]**2 + v[1]**2 + v[2]**2)
 def cross(a, b):
     return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]
 
+def dot(a, b): return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+
 def compute_kepler_orbit(pos_rel_m, vel_rel_ms, parent_mass_kg):
     mu = G * parent_mass_kg
     r, v = vec_len(pos_rel_m), vec_len(vel_rel_ms)
@@ -128,9 +157,42 @@ def compute_kepler_orbit(pos_rel_m, vel_rel_ms, parent_mass_kg):
     ecc = min(vec_len(e_vec), 0.9999)
     inc_deg = math.degrees(math.acos(max(-1.0, min(1.0, h[2] / h_len)))) if h_len > 0 else 0.0
     period_s = 2.0 * math.pi * math.sqrt(semi_major_m**3 / mu)
+
+    # Longitude of Ascending Node (Ω): node vector n = k × h
+    k = [0.0, 0.0, 1.0]
+    n = cross(k, h)
+    n_len = vec_len(n)
+    if n_len > 1e-10:
+        asc_node_deg = math.degrees(math.acos(max(-1.0, min(1.0, n[0] / n_len))))
+        if n[1] < 0: asc_node_deg = 360.0 - asc_node_deg
+    else:
+        asc_node_deg = 0.0
+
+    # Argument of Periapsis (ω)
+    if n_len > 1e-10 and ecc > 1e-10:
+        arg_peri_deg = math.degrees(math.acos(max(-1.0, min(1.0, dot(n, e_vec) / (n_len * ecc)))))
+        if e_vec[2] < 0: arg_peri_deg = 360.0 - arg_peri_deg
+    else:
+        arg_peri_deg = 0.0
+
+    # True anomaly (ν) → Eccentric anomaly (E) → Mean anomaly (M)
+    if ecc > 1e-10:
+        cos_nu = dot(e_vec, pos_rel_m) / (ecc * r)
+        cos_nu = max(-1.0, min(1.0, cos_nu))
+        nu = math.acos(cos_nu)
+        if dot(pos_rel_m, vel_rel_ms) < 0: nu = 2.0 * math.pi - nu
+        # Eccentric anomaly from true anomaly
+        E = 2.0 * math.atan2(math.sqrt(1.0 - ecc) * math.sin(nu / 2.0),
+                              math.sqrt(1.0 + ecc) * math.cos(nu / 2.0))
+        mean_anomaly_deg = math.degrees(E - ecc * math.sin(E)) % 360.0
+    else:
+        mean_anomaly_deg = 0.0
+
     return {
         'SemiMajorAxis_AU': semi_major_m * M_TO_AU, 'Eccentricity': ecc,
-        'Inclination': inc_deg, 'Period_days': period_s / 86400.0, 'source': 'computed'
+        'Inclination': inc_deg, 'Period_days': period_s / 86400.0,
+        'AscendingNode': asc_node_deg, 'ArgOfPericenter': arg_peri_deg,
+        'MeanAnomaly': mean_anomaly_deg, 'source': 'computed'
     }
 
 def get_known_orbit(name):
@@ -210,7 +272,42 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
             greenhouse_eff = 33.0
             if pressure_atm > 5.0: greenhouse_eff = 100.0
             if pressure_atm > 50.0: greenhouse_eff = 400.0
-            lines.extend(['    Atmosphere', '    {', f'        Model    "Earth"', f'        Pressure {pressure_atm:.6f}', f'        Greenhouse {greenhouse_eff}', '    }'])
+
+            # Высота атмосферы: ~5 шкал высот (H = kT/mg), минимум 10 км
+            k_boltz = 1.380649e-23
+            mean_mol_mass = 4.8e-26  # ~29 а.е.м. (азот/кислород)
+            if gravity > 0 and temp_k > 1.0:
+                scale_height_m = (k_boltz * temp_k) / (mean_mol_mass * gravity)
+                atm_height_km = max(10.0, (scale_height_m * 5.0) * M_TO_KM)
+            else:
+                atm_height_km = max(10.0, radius_m * M_TO_KM * 0.02)
+
+            # Цвет неба по давлению и температуре
+            if pressure_atm > 50.0:
+                # Плотная атмосфера типа Венеры — жёлто-оранжевое небо
+                sky_color = '(1.0 0.85 0.4)'
+            elif pressure_atm > 5.0:
+                # Очень плотная — мутно-жёлтая
+                sky_color = '(0.9 0.8 0.5)'
+            elif temp_k > 300 and pressure_atm > 0.5:
+                # Тёплая с плотной атмосферой — голубое небо (как Земля)
+                sky_color = '(0.3 0.5 1.0)'
+            elif pressure_atm < 0.01:
+                # Разреженная — тёмное небо с лёгким оттенком
+                sky_color = '(0.15 0.15 0.3)'
+            else:
+                # По умолчанию — бледно-голубое
+                sky_color = '(0.45 0.55 0.85)'
+
+            lines.extend([
+                '    Atmosphere', '    {',
+                f'        Model      "Earth"',
+                f'        Height     {atm_height_km:.1f}',
+                f'        Pressure   {pressure_atm:.6f}',
+                f'        Greenhouse {greenhouse_eff}',
+                f'        Color      {sky_color}',
+                '    }'
+            ])
             has_atm = True
 
     # Добавляем блок Surface для процедурного ландшафта (иначе планета будет просто гладким шаром)
@@ -221,6 +318,29 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
             '        BumpHeight  10.0', # Примерная высота гор 10 км
             '        BumpOffset  5.0',
             f'        Style "{se_class}"',
+            '    }'
+        ])
+
+    # Кольца: из базы известных планет или из данных US2
+    ring_name = name.strip().lower()
+    has_rings_us2 = False
+    ring_inner_km, ring_outer_km = 0, 0
+    for comp in entity.get('Components', []):
+        if comp.get('HasRings') or comp.get('RingInnerRadius') or 'Ring' in str(comp.get('$type', '')):
+            has_rings_us2 = True
+            ring_inner_km = comp.get('RingInnerRadius', 0) * M_TO_KM if comp.get('RingInnerRadius') else 0
+            ring_outer_km = comp.get('RingOuterRadius', 0) * M_TO_KM if comp.get('RingOuterRadius') else 0
+
+    if ring_name in KNOWN_RINGS and not has_rings_us2:
+        ring_inner_km, ring_outer_km, _ = KNOWN_RINGS[ring_name]
+        has_rings_us2 = True
+
+    if has_rings_us2 and ring_outer_km > ring_inner_km > 0:
+        lines.extend([
+            '    Rings',
+            '    {',
+            f'        InnerRadius {ring_inner_km:.1f}',
+            f'        OuterRadius {ring_outer_km:.1f}',
             '    }'
         ])
 
@@ -237,10 +357,18 @@ def entity_to_sc(entity, parent, orbit_data, se_type, se_star_name):
             lines.extend(['    Life', '    {', '        Class   "Organic"', '        Type    "Multicellular"', '        Biome   "Marine/Terrestrial"', '    }'])
         random.seed() # Возвращаем обычный рандом
 
-    lines.extend([f'    Orbit', '    {', f'        SemiMajorAxis {orbit_data["SemiMajorAxis_AU"]:.8f}',
-                  f'        Eccentricity  {orbit_data["Eccentricity"]:.6f}',
-                  f'        Inclination   {orbit_data["Inclination"]:.4f}',
-                  f'        Period        {orbit_data["Period_days"]:.4f}', '    }', '}'])
+    orbit_lines = [
+        f'    Orbit', '    {',
+        f'        SemiMajorAxis   {orbit_data["SemiMajorAxis_AU"]:.8f}',
+        f'        Eccentricity    {orbit_data["Eccentricity"]:.6f}',
+        f'        Inclination     {orbit_data["Inclination"]:.4f}',
+        f'        AscendingNode   {orbit_data.get("AscendingNode", 0.0):.4f}',
+        f'        ArgOfPericenter {orbit_data.get("ArgOfPericenter", 0.0):.4f}',
+        f'        MeanAnomaly     {orbit_data.get("MeanAnomaly", 0.0):.4f}',
+        f'        Period          {orbit_data["Period_days"]:.4f}',
+        '    }', '}'
+    ]
+    lines.extend(orbit_lines)
     return '\n'.join(lines)
 
 def find_ubox():
