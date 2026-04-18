@@ -66,12 +66,65 @@ def get_latest_ubox(us2_dir):
         return None, 0
 
 
-def restart_spaceengine(se_exe):
-    """Закрывает SpaceEngine и запускает снова."""
+def sync_homeworld(se_exe, se_star_name):
+    """Прописывает HomeWorld в <se_install>/config/main-user.cfg = se_star_name.
+    SE использует это значение для горячей клавиши Shift+H (Home)."""
+    if not se_star_name:
+        return False
+    se_dir = os.path.dirname(os.path.dirname(se_exe))  # .../SpaceEngine
+    cfg_path = os.path.join(se_dir, 'config', 'main-user.cfg')
+    if not os.path.isfile(cfg_path):
+        print(f"[SE]   [!] main-user.cfg не найден: {cfg_path}")
+        return False
+    try:
+        with open(cfg_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        changed = False
+        for i, ln in enumerate(lines):
+            stripped = ln.lstrip()
+            if stripped.startswith('HomeWorld'):
+                indent = ln[:len(ln) - len(stripped)]
+                new_ln = f'{indent}HomeWorld   "{se_star_name}"\n'
+                if new_ln != ln:
+                    lines[i] = new_ln
+                    changed = True
+                break
+        if changed:
+            with open(cfg_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+            print(f"[SE]   ✓ HomeWorld → {se_star_name}")
+        return True
+    except Exception as e:
+        print(f"[SE]   [!] Не удалось обновить HomeWorld: {e}")
+        return False
+
+
+def send_home_keypress(delay_sec=20):
+    """После загрузки SE шлёт Shift+H → переход на HomeWorld.
+    Запускается в фоне: ждёт delay_sec, активирует окно SpaceEngine, шлёт клавишу."""
+    ps_script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$w = New-Object -ComObject wscript.shell;"
+        f"Start-Sleep -Seconds {delay_sec};"
+        "for ($i=0; $i -lt 10; $i++) {"
+        "  if ($w.AppActivate('SpaceEngine')) { break }"
+        "  Start-Sleep -Seconds 1"
+        "};"
+        "Start-Sleep -Milliseconds 800;"
+        "[System.Windows.Forms.SendKeys]::SendWait('+H')"
+    )
+    subprocess.Popen(
+        ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+
+
+def restart_spaceengine(se_exe, se_star_name=None):
+    """Закрывает SpaceEngine и запускает снова.
+    Если передано se_star_name — синхронизирует HomeWorld и автоматически шлёт Shift+H."""
     se_name = os.path.basename(se_exe)
 
     print(f"[SE]   Закрываю SpaceEngine...")
-    se_name = os.path.basename(se_exe)  # e.g. "SpaceEngine.exe"
     subprocess.run(
         ["taskkill", "/FI", f"IMAGENAME eq {se_name}", "/F"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -87,10 +140,16 @@ def restart_spaceengine(se_exe):
     # Ждём пока процесс точно завершится
     time.sleep(2)
 
+    if se_star_name:
+        sync_homeworld(se_exe, se_star_name)
+
     print(f"[SE]   Запускаю SpaceEngine...")
     if os.path.isfile(se_exe):
         subprocess.Popen([se_exe])
         print(f"[SE]   ✓ SpaceEngine запущен.")
+        if se_star_name:
+            send_home_keypress(delay_sec=20)
+            print(f"[SE]   → Через 20с пошлю Shift+H → {se_star_name}")
     else:
         print(f"[SE]   [!] Файл не найден: {se_exe}")
         print(f"           Проверь se_exe в config.ini")
@@ -103,8 +162,8 @@ def do_convert(ubox_path, converter, catalog_name, se_exe, se_star_name):
         out_path = converter.convert_ubox(ubox_path, catalog_name, se_star_name)
         print(f"[SYNC] ✓ Каталог обновлён: {out_path}")
 
-        # Перезапускаем SE чтобы подхватил новый каталог
-        restart_spaceengine(se_exe)
+        # Перезапускаем SE чтобы подхватил новый каталог и сразу навёл селектор
+        restart_spaceengine(se_exe, se_star_name)
         return True
     except Exception as e:
         print(f"[ОШИБКА] Конвертация провалилась: {e}")

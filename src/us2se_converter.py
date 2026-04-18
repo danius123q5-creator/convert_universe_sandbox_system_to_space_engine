@@ -60,38 +60,106 @@ KNOWN_RINGS = {
 JUNK_NAME_PREFIXES = ('ui_string:', 'фрагмент', 'fragment', 'debris')
 MIN_RADIUS_KM     = 0.1
 MIN_RADIUS_SSO_KM = 0.1
-MAX_RADIUS_KM     = 200_000
+MAX_RADIUS_KM     = 1_000_000
 SIGMA = 5.670373e-8  # Стефан-Больцман
-
-def get_spectral_class(temp):
-    if temp > 30000: return 'O'
-    if temp > 10000: return 'B'
-    if temp > 7500:  return 'A'
-    if temp > 6000:  return 'F'
-    if temp > 5200:  return 'G'
-    if temp > 3700:  return 'K'
-    return 'M'
 
 R_SUN_M = 6.957e8
 M_SUN_KG = 1.989e30
 L_SUN_W  = 3.828e26
 
+# Границы спектральных классов Морган-Кинан по эффективной температуре (K)
+_SPECTRAL_BANDS = [
+    ('O', 30000.0, 50000.0),
+    ('B', 10000.0, 30000.0),
+    ('A',  7500.0, 10000.0),
+    ('F',  6000.0,  7500.0),
+    ('G',  5200.0,  6000.0),
+    ('K',  3700.0,  5200.0),
+    ('M',  2400.0,  3700.0),
+]
+
+def get_spectral_class(temp_k):
+    """Вернуть (буква, подкласс 0-9) по эффективной температуре."""
+    if temp_k >= 50000.0: return 'O', 0
+    if temp_k <  2400.0:  return 'M', 9
+    for letter, lo, hi in _SPECTRAL_BANDS:
+        if lo <= temp_k < hi:
+            sub = int(round((hi - temp_k) / (hi - lo) * 9.0))
+            return letter, max(0, min(9, sub))
+    return 'M', 9
+
+def get_luminosity_class(temp_k, rad_sol, lum_sol, mass_sol):
+    """Класс светимости по положению на H-R диаграмме."""
+    # Вырожденные объекты по плотности: нейтронные звёзды и белые карлики
+    if rad_sol < 0.0001:             return 'X'   # Нейтронная звезда/чёрная дыра
+    if rad_sol < 0.03:               return 'VII' # Белый карлик
+    # Сверхгиганты
+    if lum_sol > 30000.0 and rad_sol > 100.0: return 'Ia'
+    if lum_sol > 10000.0 and rad_sol > 50.0:  return 'Ib'
+    # Яркие гиганты / гиганты
+    if lum_sol > 1000.0 and rad_sol > 25.0:   return 'II'
+    if rad_sol > 10.0 and lum_sol > 30.0:     return 'III'
+    # Субгиганты (только холоднее F)
+    if rad_sol > 2.0 and lum_sol > 3.0 and temp_k < 7000.0: return 'IV'
+    return 'V'
+
+def _extract_star_params(entity):
+    """Возвращает (mass_kg, radius_m, temp_k, lum_w) из US2-сущности звезды."""
+    mass_kg  = entity.get('PhysicsMass') or M_SUN_KG
+    radius_m = entity.get('Radius') or R_SUN_M
+    lum_w    = 0.0
+    for comp in entity.get('Components', []):
+        if comp.get('$type') == 'Celestial' or 'Luminosity' in comp:
+            lum_w = comp.get('Luminosity') or 0.0
+            break
+    temp_raw = entity.get('SurfaceTemperature')
+    try:
+        temp_k = float(temp_raw)
+    except (TypeError, ValueError):
+        temp_k = 0.0
+    # В US2 температура звёзд часто пустая — восстанавливаем из Stefan-Boltzmann
+    if temp_k <= 1.0:
+        if lum_w > 0.0 and radius_m > 0.0:
+            temp_k = (lum_w / (4.0 * math.pi * radius_m**2 * SIGMA)) ** 0.25
+        else:
+            temp_k = 5778.0
+    if lum_w <= 0.0 and radius_m > 0.0 and temp_k > 0.0:
+        lum_w = 4.0 * math.pi * radius_m**2 * SIGMA * temp_k**4
+    return mass_kg, radius_m, temp_k, lum_w
+
+def build_star_class(entity):
+    """Формирует строку SE `Class` вида 'G2 V', 'M1 Iab', 'WD', 'Neutron'."""
+    mass_kg, radius_m, temp_k, lum_w = _extract_star_params(entity)
+    mass_sol = mass_kg  / M_SUN_KG
+    rad_sol  = radius_m / R_SUN_M
+    lum_sol  = lum_w    / L_SUN_W
+
+    # Явные экзотические типы из US2 (StarType: 5=WhiteDwarf, 6=NeutronStar, 7=BlackHole — по US2)
+    star_type = None
+    for comp in entity.get('Components', []):
+        if 'StarType' in comp:
+            star_type = comp.get('StarType')
+            break
+    if star_type == 7 or rad_sol < 1e-5:
+        return 'X'          # Чёрная дыра — SE класс "X"
+    if star_type == 6 or (rad_sol < 0.0005 and mass_sol > 0.8):
+        return 'Q'          # Нейтронная звезда — SE класс "Q"
+    if star_type == 5 or get_luminosity_class(temp_k, rad_sol, lum_sol, mass_sol) == 'VII':
+        letter, sub = get_spectral_class(max(temp_k, 6000.0))  # белые карлики обычно DA/DB — используем горячий диапазон
+        return f'D{letter}{sub}'  # SE понимает DA, DB и т.п.
+
+    letter, sub = get_spectral_class(temp_k)
+    lum_class   = get_luminosity_class(temp_k, rad_sol, lum_sol, mass_sol)
+    return f'{letter}{sub} {lum_class}'
+
 def entity_to_star_sc(entity):
     name = (entity.get('Name') or 'Star').strip()
+    mass_kg, radius_m, temp_k, lum_w = _extract_star_params(entity)
 
-    mass_kg = entity.get('PhysicsMass', M_SUN_KG)
-    radius_m = entity.get('Radius', R_SUN_M)
-    temp_k = float(entity.get('SurfaceTemperature', 5778))
-
-    mass_sol = mass_kg / M_SUN_KG
-    rad_sol = radius_m / R_SUN_M
-    # Luminosity from Stefan-Boltzmann: L = 4πR²σT⁴
-    lum_w = 4.0 * math.pi * radius_m**2 * SIGMA * temp_k**4
-    lum_sol = lum_w / L_SUN_W
-
-    spec = get_spectral_class(temp_k)
-    # Приблизительный подкласс по температуре внутри спектрального класса
-    spec_full = f'{spec}2 V'  # Класс V (main sequence) по умолчанию
+    mass_sol = mass_kg  / M_SUN_KG
+    rad_sol  = radius_m / R_SUN_M
+    lum_sol  = lum_w    / L_SUN_W
+    spec_full = build_star_class(entity)
 
     lines = [
         f'Star "{name}"',
