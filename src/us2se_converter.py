@@ -521,33 +521,43 @@ class US2SE_Converter:
             seen.add(name.lower())
             
             cat = e.get('Category', '').lower()
-            known = get_known_orbit(name)
-            if known:
-                p_db = next((obj for obj in entities if obj.get('Name','').lower()==known['ParentOverride'].lower()), None)
-                parent = p_db if p_db else center_fixed
-                orbit = {'SemiMajorAxis_AU': known['SemiMajorAxis_AU'], 'Eccentricity': known['Eccentricity'], 
-                         'Inclination': known['Inclination'], 'Period_days': known['Period_days'], 'source': 'DB'}
-                se_type = known['SEType']
+
+            # Родителя и тип определяем ВСЕГДА по данным симуляции (кастомные системы)
+            rp, _ = find_nearest_parent(e, entities, {'planet', 'star', 'sso'})
+            if cat == 'moon':
+                se_type, parent = resolve_se_type(cat, rp, entities, center_fixed)
             else:
-                rp, _ = find_nearest_parent(e, entities, {'planet', 'star', 'sso'})
-                if cat == 'moon':
-                    se_type, parent = resolve_se_type(cat, rp, entities, center_fixed)
+                if rp and rp.get('Category', '').lower() in ('planet', 'sso'):
+                    se_type, parent = 'Moon', rp
                 else:
-                    if rp and rp.get('Category', '').lower() in ('planet', 'sso'):
-                        se_type, parent = 'Moon', rp
-                    else:
-                        se_type = 'Asteroid' if cat == 'sso' else 'Planet'
-                        parent = rp if rp else center_fixed
-                
-                if not parent: parent = center_fixed
-                
-                # Изоляция: любая звезда в этом моде привязывается к центру системы
-                if parent.get('Category') == 'star' and parent['Id'] != star_id:
-                    parent = center_fixed
-                    
-                pos, vel = vec_sub(parse_vec3(e['Position']), parse_vec3(parent['Position'])), vec_sub(parse_vec3(e['Velocity']), parse_vec3(parent['Velocity']))
-                orbit = compute_kepler_orbit(pos, vel, parent.get('PhysicsMass', 10**30))
-                if not orbit: orbit = {'SemiMajorAxis_AU': vec_len(pos)*M_TO_AU, 'Eccentricity': 0.0, 'Inclination': 0.0, 'Period_days': 1.0, 'source': 'fallback'}
+                    se_type = 'Asteroid' if cat == 'sso' else 'Planet'
+                    parent = rp if rp else center_fixed
+
+            if not parent: parent = center_fixed
+
+            # Изоляция: любая звезда в этом моде привязывается к центру системы
+            if parent.get('Category') == 'star' and parent['Id'] != star_id:
+                parent = center_fixed
+
+            # Орбиту ВСЕГДА считаем из реальных позиций/скоростей US —
+            # так порядок и расстояния планет совпадают с Universe Sandbox
+            pos, vel = vec_sub(parse_vec3(e['Position']), parse_vec3(parent['Position'])), vec_sub(parse_vec3(e['Velocity']), parse_vec3(parent['Velocity']))
+            orbit = compute_kepler_orbit(pos, vel, parent.get('PhysicsMass', 10**30))
+
+            if not orbit:
+                # Симуляция разлетелась / нет данных — аварийный фолбэк.
+                # Сначала пробуем реальную орбиту из базы (только для тел с известными именами),
+                # иначе ставим тело по текущему расстоянию с круговой орбитой.
+                known = get_known_orbit(name)
+                if known:
+                    p_db = next((obj for obj in entities if obj.get('Name','').lower()==known['ParentOverride'].lower()), None)
+                    if p_db: parent = p_db
+                    orbit = {'SemiMajorAxis_AU': known['SemiMajorAxis_AU'], 'Eccentricity': known['Eccentricity'],
+                             'Inclination': known['Inclination'], 'Period_days': known['Period_days'],
+                             'AscendingNode': 0.0, 'ArgOfPericenter': 0.0, 'MeanAnomaly': 0.0, 'source': 'DB-fallback'}
+                    se_type = known['SEType']
+                else:
+                    orbit = {'SemiMajorAxis_AU': vec_len(pos)*M_TO_AU, 'Eccentricity': 0.0, 'Inclination': 0.0, 'Period_days': 1.0, 'source': 'fallback'}
 
             processed.append({'entity': e, 'parent_id': parent['Id'] if parent else star_id, 'orbit': sanitize_orbit(orbit, se_type), 'se_type': se_type})
 

@@ -41,9 +41,30 @@ timeout /t 3 /nobreak >nul
 echo  [3/3] Запуск синхронизатора...
 echo.
 echo  Пути читаются из config.ini
-echo  Для остановки: Ctrl+C или STOP.bat
+echo  Остановка: Ctrl+C (закроет также SE и US) или STOP.bat
 echo.
 
 python src\us2se_sync.py
+
+:: ── После остановки синка закрываем SE и US ────────────────────────────────
+echo.
+echo  ╔══════════════════════════════════════╗
+echo  ║        US2SE Bridge — стоп           ║
+echo  ╚══════════════════════════════════════╝
+echo.
+
+echo  [1/2] Закрываю SpaceEngine...
+taskkill /IM "SpaceEngine.exe" /F >nul 2>&1
+echo        OK
+
+echo  [2/2] Закрываю Universe Sandbox...
+taskkill /FI "IMAGENAME eq Universe Sandbox x64.exe" /F >nul 2>&1
+taskkill /FI "IMAGENAME eq Universe Sandbox.exe"     /F >nul 2>&1
+powershell -Command "Get-Process | Where-Object { $_.Name -match 'Universe' } | Stop-Process -Force" >nul 2>&1
+echo        OK
+
+echo.
+echo  Все процессы завершены.
+echo.
 pause
 
